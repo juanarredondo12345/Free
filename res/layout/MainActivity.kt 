@@ -1,0 +1,151 @@
+package com.example.aimbot
+
+import android.content.Context
+import android.os.Bundle
+import android.view.View
+import android.widget.Button
+import android.widget.EditText
+import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import kotlinx.coroutines.*
+import java.io.DataOutputStream
+import java.net.InetSocketAddress
+import java.net.Socket
+
+class MainActivity : AppCompatActivity() {
+    
+    private lateinit var tvStatus: TextView
+    private lateinit var etServerIp: EditText
+    private lateinit var btnConnect: Button
+    private lateinit var btnToggleAim: Button
+    
+    // Configuración del Socket
+    private var socket: Socket? = null
+    private var outputStream: DataOutputStream? = null
+    private var isConnected = false
+    private val scope = CoroutineScope(Dispatchers.IO + Job())
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        // Inicializar vistas
+        tvStatus = findViewById(R.id.tvStatus)
+        etServerIp = findViewById(R.id.etServerIp)
+        btnConnect = findViewById(R.id.btnConnect)
+        btnToggleAim = findViewById(R.id.btnToggleAim)
+
+        // Cargar IP guardada
+        etServerIp.setText(loadPref("server_ip", "127.0.0.1"))
+
+        // Evento: Conectar
+        btnConnect.setOnClickListener {
+            val ip = etServerIp.text.toString().trim()
+            if (ip.isEmpty()) {
+                showToast("Ingresa una IP válida")
+                return@setOnClickListener
+            }
+            
+            savePref("server_ip", ip)
+            connectToServer(ip)
+        }
+
+        // Evento: Toggle Aimbot
+        btnToggleAim.setOnClickListener {
+            if (!isConnected) {
+                showToast("Primero conecta con el servidor")
+                return@setOnClickListener
+            }
+            
+            val isOn = btnToggleAim.text == "DESACTIVAR AIMBOT"
+            sendCommand(if (isOn) "AIM_OFF" else "AIM_ON")
+            
+            // Actualizar estado visual
+            if (isOn) {
+                btnToggleAim.text = "ACTIVAR AIMBOT"
+                btnToggleAim.setBackgroundColor(resources.getColor(android.R.color.holo_green_light))
+            } else {
+                btnToggleAim.text = "DESACTIVAR AIMBOT"
+                btnToggleAim.setBackgroundColor(resources.getColor(android.R.color.darker_gray))
+            }
+        }
+    }
+
+    private fun connectToServer(ip: String) {
+        updateStatus("Conectando...", "#FF9800")
+        btnConnect.isEnabled = false
+
+        scope.launch {
+            try {
+                socket = Socket()
+                socket?.connect(InetSocketAddress(ip, 8080), 3000) // 3 segundos de timeout
+                
+                if (socket?.isConnected == true) {
+                    outputStream = DataOutputStream(socket?.getOutputStream())
+                    isConnected = true
+                    
+                    runOnUiThread {
+                        updateStatus("Conectado: $ip", "#4CAF50")
+                        btnConnect.isEnabled = true
+                        btnToggleAim.isEnabled = true
+                        showToast("¡Conexión exitosa!")
+                    }
+                } else {
+                    throw Exception("No se pudo conectar")
+                }
+            } catch (e: Exception) {
+                isConnected = false
+                socket?.close()
+                runOnUiThread {
+                    updateStatus("Error: ${e.message}", "#F44336")
+                    btnConnect.isEnabled = true
+                    btnToggleAim.isEnabled = false
+                }
+            }
+        }
+    }
+
+    private fun sendCommand(command: String) {
+        scope.launch {
+            try {
+                outputStream?.writeBytes("$command\n")
+                outputStream?.flush()
+                showToast("Comando enviado: $command")
+            } catch (e: Exception) {
+                runOnUiThread {
+                    updateStatus("Desconectado (Error)", "#F44336")
+                    isConnected = false
+                    btnToggleAim.isEnabled = false
+                }
+            }
+        }
+    }
+
+    private fun updateStatus(text: String, colorHex: String) {
+        tvStatus.text = text
+        // Convertir hex a int para color
+        tvStatus.setTextColor(java.awt.Color.decode(colorHex).rgb) 
+    }
+
+    private fun showToast(msg: String) {
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+
+    // Preferencias simples
+    private fun savePref(key: String, value: String) {
+        getSharedPreferences("aimbot_prefs", Context.MODE_PRIVATE)
+            .edit().putString(key, value).apply()
+    }
+
+    private fun loadPref(key: String, default: String): String {
+        return getSharedPreferences("aimbot_prefs", Context.MODE_PRIVATE)
+            .getString(key, default) ?: default
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        scope.cancel()
+        socket?.close()
+    }
+}
