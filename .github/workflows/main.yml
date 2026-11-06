@@ -1,0 +1,38 @@
+name: Build Aimbot APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Clonar el repositorio
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Configurar Java (Necesario para Gradle)
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # 3. Dar permisos de ejecución al wrapper de Gradle
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # 4. Construir el APK (Debug)
+      - name: Build APK
+        run: ./gradlew assembleDebug
+
+      # 5. Subir el APK como Artifact
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: aimbot-apk
+          path: app/build/outputs/apk/debug/*.apk
